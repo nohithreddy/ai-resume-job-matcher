@@ -34,8 +34,6 @@ ENV APP_BIND_ADDRESS=0.0.0.0:3000 \
     APP_LOG_FILTER=resume_job_matcher=info,tower_http=info \
     APP_JWT_TTL_SECONDS=3600 \
     APP_ARGON2_MEMORY_COST=19456 \
-    APP_AUTH_RATE_LIMIT_WINDOW_SECONDS=60 \
-    APP_AUTH_RATE_LIMIT_MAX_REQUESTS=10 \
     APP_EMBEDDING_MODEL=text-embedding-3-small \
     APP_PERSISTENCE=sqlite \
     APP_DATABASE_PATH=/data/matcher.db
