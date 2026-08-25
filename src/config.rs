@@ -74,6 +74,8 @@ impl AppConfig {
     }
 
     pub fn from_env() -> Result<Self, ConfigError> {
+        // Load .env if present (no-op in production where vars are injected).
+        let _ = dotenvy::dotenv();
         let jwt_secret = env::var("APP_JWT_SECRET")
             .map_err(|_| ConfigError::Missing("APP_JWT_SECRET".to_owned()))?;
         if jwt_secret.len() < 32 {

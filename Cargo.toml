@@ -20,6 +20,7 @@ argon2 = "0.5"
 async-trait = "0.1"
 axum = { version = "0.8", features = ["macros", "multipart"] }
 chrono = { version = "0.4", features = ["clock", "serde"] }
+dotenvy = "0.15"
 http = "1"
 infer = "0.19"
 jsonwebtoken = "9"

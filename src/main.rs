@@ -6,6 +6,8 @@ use tracing::info;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    // Ensure .env is loaded before any config/tracing reads env.
+    let _ = dotenvy::dotenv();
     let config = AppConfig::from_env()?;
     tracing_subscriber::fmt()
         .with_env_filter(&config.log_filter)
