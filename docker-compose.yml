@@ -22,6 +22,11 @@ services:
       APP_UPLOAD_DIR: "/data/uploads"
       APP_PERSISTENCE: "${APP_PERSISTENCE:-sqlite}"
       APP_DATABASE_PATH: "${APP_DATABASE_PATH:-/data/matcher.db}"
+      # Postgres backend (e.g. Neon): set APP_PERSISTENCE=postgres and provide
+      # APP_DATABASE_URL in the host environment or .env file. The URL carries
+      # credentials; never commit it. Requires sslmode=require.
+      APP_DATABASE_URL: "${APP_DATABASE_URL:-}"
+      APP_DATABASE_MAX_CONNECTIONS: "${APP_DATABASE_MAX_CONNECTIONS:-5}"
     ports:
       - "${APP_HOST:-127.0.0.1}:${APP_PORT:-3000}:3000"
     volumes:

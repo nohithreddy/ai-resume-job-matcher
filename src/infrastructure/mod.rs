@@ -4,6 +4,7 @@ pub mod idempotency;
 pub mod interview;
 mod memory;
 mod parsing;
+mod postgres;
 mod security;
 pub mod sqlite;
 pub mod text_extraction;
@@ -24,6 +25,7 @@ pub use idempotency::IdempotencyStore;
 pub use interview::DeterministicInterviewGenerator;
 pub use memory::InMemoryRepositories;
 pub use parsing::{DeterministicJobParser, DeterministicResumeParser};
+pub use postgres::PostgresRepositories;
 pub use security::{PasswordHasher, SecurityService};
 pub use sqlite::SqliteRepositories;
 pub use text_extraction::StubTextExtractor;
@@ -62,12 +64,29 @@ impl RepositorySet {
             matches: Arc::new(repositories),
         })
     }
+
+    pub fn postgres(url: &str, max_connections: u32) -> Result<Self, crate::domain::DomainError> {
+        let repositories = PostgresRepositories::open(url, max_connections)?;
+        Ok(Self {
+            users: Arc::new(repositories.clone()),
+            resumes: Arc::new(repositories.clone()),
+            jobs: Arc::new(repositories.clone()),
+            applications: Arc::new(repositories.clone()),
+            matches: Arc::new(repositories),
+        })
+    }
 }
 
 pub fn open_repositories(config: &AppConfig) -> Result<RepositorySet, crate::domain::DomainError> {
     match config.persistence {
         PersistenceBackend::Memory => Ok(RepositorySet::in_memory()),
         PersistenceBackend::Sqlite => RepositorySet::sqlite(&config.database_path),
+        PersistenceBackend::Postgres => match &config.database_url {
+            Some(url) => RepositorySet::postgres(url, config.database_max_connections),
+            None => Err(crate::domain::DomainError::Internal(
+                "database URL is not configured".to_owned(),
+            )),
+        },
     }
 }
 
@@ -77,6 +96,7 @@ impl RepositorySet {
         match config.persistence {
             PersistenceBackend::Memory => "in-memory",
             PersistenceBackend::Sqlite => "sqlite",
+            PersistenceBackend::Postgres => "postgres",
         }
     }
 }

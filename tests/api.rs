@@ -25,6 +25,8 @@ fn base_config() -> AppConfig {
         embedding_model: "test-model".to_owned(),
         persistence: PersistenceBackend::Memory,
         database_path: PathBuf::new(),
+        database_url: None,
+        database_max_connections: 5,
         auth_rate_limit_window_seconds: 60,
         auth_rate_limit_max_requests: 10_000,
         admin_email: None,

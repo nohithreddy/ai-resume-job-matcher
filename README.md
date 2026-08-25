@@ -55,12 +55,27 @@ recommendations accompany every report.
 
 ## Persistence
 
-The default backend is **SQLite** (`APP_PERSISTENCE=sqlite`, file at
-`APP_DATABASE_PATH`, default `./data/matcher.db`) in WAL mode with a
-versioned embedded migration. All repository ports from
-`src/domain/repositories.rs` are implemented, including the atomic
+Three interchangeable backends implement every repository port from
+`src/domain/repositories.rs`, including the atomic
 user + session + refresh-token creation and rotation-with-reuse-detection.
-Set `APP_PERSISTENCE=memory` for a volatile in-process adapter (used by tests).
+
+- **SQLite** (default): `APP_PERSISTENCE=sqlite`, file at `APP_DATABASE_PATH`
+  (default `./data/matcher.db`), WAL mode with a versioned embedded migration.
+- **PostgreSQL** (`APP_PERSISTENCE=postgres`): managed providers such as Neon
+  via `tokio-postgres` + `deadpool-postgres`. Set `APP_DATABASE_URL`
+  (must include `sslmode=require`; TLS uses rustls with the webpki root store)
+  and optionally `APP_DATABASE_MAX_CONNECTIONS` (default 5, must be > 0). The
+  same logical schema as SQLite is created through a versioned
+  `schema_migrations` table. Never commit the URL — it carries credentials.
+- **Memory**: `APP_PERSISTENCE=memory` for a volatile in-process adapter (used
+  by tests).
+
+A live Postgres integration test exists but is skipped unless a database is
+configured:
+
+```text
+cargo test -- --ignored postgres_roundtrip_with_neon --nocapture   # needs APP_DATABASE_URL
+```
 
 NenDB remains documented as an unverified future option in
 [docs/DATA_MODEL.md](docs/DATA_MODEL.md); it has no Rust driver and no

@@ -7,6 +7,7 @@ use thiserror::Error;
 pub enum PersistenceBackend {
     Memory,
     Sqlite,
+    Postgres,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -21,6 +22,11 @@ pub struct AppConfig {
     pub embedding_model: String,
     pub persistence: PersistenceBackend,
     pub database_path: PathBuf,
+    /// PostgreSQL connection string; required only for `PersistenceBackend::Postgres`.
+    /// Never log or embed this value in error output.
+    pub database_url: Option<String>,
+    /// Maximum pooled connections when `APP_PERSISTENCE=postgres`.
+    pub database_max_connections: u32,
     pub auth_rate_limit_window_seconds: u64,
     pub auth_rate_limit_max_requests: usize,
     pub admin_email: Option<String>,
@@ -65,6 +71,8 @@ impl AppConfig {
             embedding_model: "test-embedding-model".to_owned(),
             persistence: PersistenceBackend::Memory,
             database_path: PathBuf::new(),
+            database_url: None,
+            database_max_connections: 5,
             auth_rate_limit_window_seconds: 60,
             auth_rate_limit_max_requests: 10_000,
             admin_email: None,
@@ -112,21 +120,22 @@ impl AppConfig {
             });
         }
 
-        let persistence = match env::var("APP_PERSISTENCE") {
-            Ok(value) => match value.trim().to_ascii_lowercase().as_str() {
-                "sqlite" => PersistenceBackend::Sqlite,
-                "memory" => PersistenceBackend::Memory,
-                other => {
-                    return Err(ConfigError::Invalid {
-                        name: "APP_PERSISTENCE".to_owned(),
-                        source_message: format!(
-                            "'{other}' is not a supported backend; use sqlite or memory"
-                        ),
-                    });
-                }
-            },
-            Err(_) => PersistenceBackend::Sqlite,
-        };
+        let persistence = parse_backend(env::var("APP_PERSISTENCE").ok().as_deref())?;
+        let database_url = env::var("APP_DATABASE_URL")
+            .ok()
+            .filter(|value| !value.trim().is_empty());
+        validate_postgres_url(if persistence == PersistenceBackend::Postgres {
+            database_url.as_ref()
+        } else {
+            None
+        })?;
+        let database_max_connections = parse_optional("APP_DATABASE_MAX_CONNECTIONS", 5_u32)?;
+        if valid_pool_size(database_max_connections).is_none() {
+            return Err(ConfigError::Invalid {
+                name: "APP_DATABASE_MAX_CONNECTIONS".to_owned(),
+                source_message: "must be greater than zero".to_owned(),
+            });
+        }
         let database_path = PathBuf::from(optional("APP_DATABASE_PATH", "./data/matcher.db"));
         let admin_email = env::var("APP_ADMIN_EMAIL")
             .ok()
@@ -176,6 +185,8 @@ impl AppConfig {
             embedding_model,
             persistence,
             database_path,
+            database_url,
+            database_max_connections,
             auth_rate_limit_window_seconds,
             auth_rate_limit_max_requests,
             admin_email,
@@ -192,6 +203,37 @@ fn optional(name: &str, default: &str) -> String {
     }
 }
 
+fn parse_backend(raw: Option<&str>) -> Result<PersistenceBackend, ConfigError> {
+    match raw.map(str::trim).filter(|value| !value.is_empty()) {
+        None => Ok(PersistenceBackend::Sqlite),
+        Some(value) => match value.to_ascii_lowercase().as_str() {
+            "sqlite" => Ok(PersistenceBackend::Sqlite),
+            "memory" => Ok(PersistenceBackend::Memory),
+            "postgres" | "postgresql" => Ok(PersistenceBackend::Postgres),
+            other => Err(ConfigError::Invalid {
+                name: "APP_PERSISTENCE".to_owned(),
+                source_message: format!(
+                    "'{other}' is not a supported backend; use sqlite, postgres, or memory"
+                ),
+            }),
+        },
+    }
+}
+
+/// Enforces that a Postgres deployment has a usable connection string. The
+/// error is generic on purpose: the URL (and its embedded credentials) must
+/// never be echoed back through `Display` or logs.
+fn validate_postgres_url(database_url: Option<&String>) -> Result<(), ConfigError> {
+    match database_url {
+        Some(url) if !url.trim().is_empty() => Ok(()),
+        _ => Err(ConfigError::Missing("APP_DATABASE_URL".to_owned())),
+    }
+}
+
+fn valid_pool_size(value: u32) -> Option<u32> {
+    (value > 0).then_some(value)
+}
+
 fn parse_optional<T>(name: &str, default: T) -> Result<T, ConfigError>
 where
     T: std::str::FromStr,
@@ -203,5 +245,70 @@ where
             source_message: source.to_string(),
         }),
         Err(_) => Ok(default),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn backend_defaults_to_sqlite_when_unset() {
+        assert_eq!(
+            parse_backend(None).expect("unset should parse"),
+            PersistenceBackend::Sqlite
+        );
+        assert_eq!(
+            parse_backend(Some("")).expect("empty should parse"),
+            PersistenceBackend::Sqlite
+        );
+    }
+
+    #[test]
+    fn backend_accepts_all_three_backends_case_insensitively() {
+        for (raw, expected) in [
+            ("sqlite", PersistenceBackend::Sqlite),
+            (" SQLite ", PersistenceBackend::Sqlite),
+            ("memory", PersistenceBackend::Memory),
+            ("MEMORY", PersistenceBackend::Memory),
+            ("postgres", PersistenceBackend::Postgres),
+            ("PostgreSQL", PersistenceBackend::Postgres),
+            (" postgresql ", PersistenceBackend::Postgres),
+        ] {
+            assert_eq!(
+                parse_backend(Some(raw)).expect("known backend should parse"),
+                expected,
+                "input {raw:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn backend_rejects_unknown_values_without_echoing_them_into_guidance() {
+        let error = parse_backend(Some("oracle")).expect_err("unknown must fail");
+        assert!(matches!(error, ConfigError::Invalid { .. }));
+        assert!(error.to_string().contains("sqlite, postgres, or memory"));
+    }
+
+    #[test]
+    fn postgres_requires_a_database_url() {
+        // Mirrors the from_env rule: Postgres without APP_DATABASE_URL is a
+        // configuration error reported generically, never with the URL echoed.
+        let error = validate_postgres_url(None).expect_err("missing url must fail");
+        match &error {
+            ConfigError::Missing(name) => assert_eq!(name, "APP_DATABASE_URL"),
+            other => panic!("expected Missing, got {other:?}"),
+        }
+        assert!(!error.to_string().contains("postgres"));
+        assert!(validate_postgres_url(Some(&String::new())).is_err());
+        let url = "postgresql://user:password@host/db?sslmode=require".to_owned();
+        validate_postgres_url(Some(&url)).expect("present url should pass");
+    }
+
+    #[test]
+    fn pool_size_must_be_positive() {
+        assert!(valid_pool_size(0).is_none());
+        assert_eq!(valid_pool_size(1), Some(1_u32));
+        assert_eq!(valid_pool_size(u32::MAX), Some(u32::MAX));
     }
 }

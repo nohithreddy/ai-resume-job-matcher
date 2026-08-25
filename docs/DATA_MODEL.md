@@ -6,10 +6,12 @@ A deployed SQLite WAL schema **v1** is shipped (`src/infrastructure/sqlite.rs`
 `SCHEMA_V1`, `PRAGMA user_version = 1`, `journal_mode=WAL`,
 `synchronous=NORMAL`, `busy_timeout 5s`). Default `sqlite` persistence stores
 all entities durably; `InMemoryRepositories` remains available via
-`APP_PERSISTENCE=memory` for tests. The NenDB material below defines the
-logical behavior a future adapter would need after NenDB itself and its
-integration path are verified. Collection names, index syntax, transaction APIs,
-and data types are not claims about NenDB capabilities.
+`APP_PERSISTENCE=memory` for tests. A PostgreSQL adapter with the same logical
+schema **v1** is also shipped (see the Postgres DDL section below). The NenDB
+material below defines the logical behavior a future adapter would need after
+NenDB itself and its integration path are verified. Collection names, index
+syntax, transaction APIs, and data types are not claims about NenDB
+capabilities.
 
 See the [logical ER diagram](diagrams/data-model-er.md).
 
@@ -72,6 +74,31 @@ and authorization semantics before it could become authoritative.
 The in-memory maps do not enforce foreign keys. Ownership is established by the
 application because authenticated user IDs are supplied when resumes and jobs are
 created. A durable adapter still needs a policy for orphan prevention and deletion.
+
+## PostgreSQL schema v1
+
+`src/infrastructure/postgres.rs` ships the same logical model as SQLite DDL
+for managed providers such as Neon (`APP_PERSISTENCE=postgres` +
+`APP_DATABASE_URL`, TLS via rustls, `sslmode=require`). Migration state lives
+in a `schema_migrations (version BIGINT PRIMARY KEY)` table with the same
+`SCHEMA_VERSION = 1` semantics as `PRAGMA user_version`; every newly pooled
+connection re-checks it before first use.
+
+| SQLite v1 | Postgres v1 |
+| --- | --- |
+| `TEXT id PRIMARY KEY` | `TEXT id PRIMARY KEY` (UUID v7 canonical text) |
+| `INTEGER created_at` epoch millis | `BIGINT` epoch millis |
+| `BLOB embedding` | `BYTEA` little-endian f32 vector |
+| `skills_json TEXT` / `report_json TEXT` | identical `TEXT` JSON columns |
+| `email TEXT UNIQUE` | `email TEXT NOT NULL UNIQUE` |
+| indexes on every lookup path | same index names and columns |
+
+Tables: `users`, `sessions`, `refresh_tokens`, `resumes`, `jobs`,
+`applications`, `match_results`. Indexes: `idx_sessions_user`,
+`idx_refresh_tokens_session`, `idx_resumes_user`, `idx_jobs_created`,
+`idx_applications_job`, `idx_match_results_candidate`,
+`idx_match_results_recruiter`. Uniqueness violations map to
+`DomainError::Conflict`, exactly like the SQLite adapter.
 
 ## Intended logical collections
 
