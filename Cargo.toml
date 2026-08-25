@@ -1,0 +1,46 @@
+[package]
+name = "resume-job-matcher"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "Production-oriented AI resume and job matching service"
+license = "MIT"
+publish = false
+
+[lib]
+name = "resume_job_matcher"
+path = "src/lib.rs"
+
+[[bin]]
+name = "resume-job-matcher"
+path = "src/main.rs"
+
+[dependencies]
+argon2 = "0.5"
+async-trait = "0.1"
+axum = { version = "0.8", features = ["macros", "multipart"] }
+chrono = { version = "0.4", features = ["clock", "serde"] }
+http = "1"
+infer = "0.19"
+jsonwebtoken = "9"
+metrics = "0.24"
+metrics-exporter-prometheus = "0.17"
+mime = "0.3"
+mime_guess = "2"
+rand_core = { version = "0.6", features = ["getrandom"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "sync", "net", "fs"] }
+tower-http = { version = "0.6", features = ["catch-panic", "trace"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+utoipa = { version = "5", features = ["axum_extras", "chrono", "uuid"] }
+utoipa-swagger-ui = { version = "8", features = ["axum"] }
+uuid = { version = "1", features = ["v7", "serde"] }
+validator = { version = "0.21", features = ["derive"] }
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }

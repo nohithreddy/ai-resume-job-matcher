@@ -1,0 +1,60 @@
+services:
+  matcher:
+    image: "resume-job-matcher:${IMAGE_TAG:-local}"
+    build:
+      context: .
+      dockerfile: Dockerfile
+    init: true
+    restart: unless-stopped
+    environment:
+      APP_BIND_ADDRESS: "0.0.0.0:3000"
+      APP_LOG_FILTER: "${APP_LOG_FILTER:-resume_job_matcher=info,tower_http=info}"
+      APP_JWT_SECRET: "${APP_JWT_SECRET:?APP_JWT_SECRET must be set; the application requires at least 32 bytes}"
+      APP_JWT_TTL_SECONDS: "${APP_JWT_TTL_SECONDS:-3600}"
+      APP_ARGON2_MEMORY_COST: "${APP_ARGON2_MEMORY_COST:-19456}"
+      APP_AUTH_RATE_LIMIT_WINDOW_SECONDS: "${APP_AUTH_RATE_LIMIT_WINDOW_SECONDS:-60}"
+      APP_AUTH_RATE_LIMIT_MAX_REQUESTS: "${APP_AUTH_RATE_LIMIT_MAX_REQUESTS:-10}"
+      APP_EMBEDDING_ENDPOINT: "${APP_EMBEDDING_ENDPOINT:-}"
+      APP_EMBEDDING_API_KEY: "${APP_EMBEDDING_API_KEY:-}"
+      APP_EMBEDDING_MODEL: "${APP_EMBEDDING_MODEL:-text-embedding-3-small}"
+      APP_ADMIN_EMAIL: "${APP_ADMIN_EMAIL:-}"
+      APP_ADMIN_PASSWORD: "${APP_ADMIN_PASSWORD:-}"
+      APP_UPLOAD_DIR: "/data/uploads"
+      APP_PERSISTENCE: "${APP_PERSISTENCE:-sqlite}"
+      APP_DATABASE_PATH: "${APP_DATABASE_PATH:-/data/matcher.db}"
+    ports:
+      - "${APP_HOST:-127.0.0.1}:${APP_PORT:-3000}:3000"
+    volumes:
+      # Durable SQLite database (WAL mode); survives container replacement.
+      - matcher-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    stop_grace_period: 30s
+    healthcheck:
+      test:
+        - CMD
+        - curl
+        - --fail
+        - --silent
+        - --show-error
+        - --max-time
+        - "2"
+        - http://127.0.0.1:3000/health/live
+      interval: 30s
+      timeout: 3s
+      start_period: 5s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+volumes:
+  matcher-data:

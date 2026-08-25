@@ -1,0 +1,96 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: "ci-${{ github.workflow }}-${{ github.ref }}"
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust:
+    name: Rust quality gates
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Install Rust 1.88.0
+        uses: dtolnay/rust-toolchain@2eae45db285e407f22119950686d47e1101e071b # 1.88.0
+        with:
+          components: clippy,rustfmt
+
+      - name: Restore Cargo cache
+        uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Check compilation
+        run: cargo check --locked --all-targets --all-features
+
+      - name: Lint
+        run: cargo clippy --locked --all-targets --all-features -- -D warnings
+
+      - name: Test
+        run: cargo test --locked --all-targets --all-features
+
+      - name: Build release binary
+        run: cargo build --locked --release --bin resume-job-matcher
+
+  container:
+    name: Container build and smoke test
+    needs: rust
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Build image
+        run: docker build --pull --tag resume-job-matcher:ci .
+
+      - name: Start container
+        run: >-
+          docker run --detach --name matcher-ci
+          --publish 127.0.0.1:3000:3000
+          --env APP_JWT_SECRET=ci-only-secret-that-is-longer-than-32-bytes
+          resume-job-matcher:ci
+
+      - name: Wait for health and smoke test endpoints
+        shell: bash
+        run: |
+          for attempt in {1..60}; do
+            status="$(docker inspect --format '{{.State.Health.Status}}' matcher-ci)"
+            if [[ "$status" == "healthy" ]]; then
+              curl --fail --silent --show-error http://127.0.0.1:3000/health/live
+              curl --fail --silent --show-error http://127.0.0.1:3000/health/ready
+              exit 0
+            fi
+            if [[ "$status" == "unhealthy" ]]; then
+              docker logs matcher-ci
+              exit 1
+            fi
+            sleep 1
+          done
+          docker logs matcher-ci
+          exit 1
+
+      - name: Remove smoke-test container
+        if: always()
+        run: |
+          docker logs matcher-ci || true
+          docker rm --force matcher-ci || true

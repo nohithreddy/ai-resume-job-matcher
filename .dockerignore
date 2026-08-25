@@ -1,0 +1,12 @@
+.git
+.github
+.env
+.env.*
+target
+tests
+docs
+README.md
+docker-compose*.yml
+docker-compose*.yaml
+*.log
+*.md
